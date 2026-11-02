@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+import os
+import requests
+import json
+
+def generate_netplan_config():
+    """
+    Generates the Netplan YAML configuration for SRV01 (Ubuntu Server 24.04 LTS)
+    on the SERVERS segment (10.10.20.20/24).
+    """
+    netplan_yaml = """network:
+  version: 2
+  ethernets:
+    enp0s3:
+      addresses: [10.10.20.20/24]
+      routes:
+        - to: default
+          via: 10.10.20.1
+      nameservers:
+        addresses: [10.10.20.1]
+"""
+    
+    filename = "00-installer-config.yaml"
+    with open(filename, "w") as f:
+        f.write(netplan_yaml)
+    
+    print(f"[+] Successfully generated Netplan config: {filename}")
+    print("[*] Move this file to /etc/netplan/ on SRV01, secure permissions (chmod 600), and run `sudo netplan apply`.")
+
+def create_osticket_incident(api_url, api_key, subject, message, topic_id=1):
+    """
+    Automates opening an ITIL Incident ticket in osTicket via the REST API.
+    """
+    headers = {
+        "X-API-KEY": api_key,
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "name": "Clifton (Network Admin)",
+        "email": "netadmin@bluestone.local",
+        "subject": subject,
+        "message": f"data:text/html,{message}",
+        "topicId": topic_id,
+        "source": "API",
+        "autorespond": True,
+        "alert": True
+    }
+    
+    try:
+        response = requests.post(api_url, json=payload, headers=headers, timeout=10)
+        if response.status_code in [200, 201]:
+            print(f"[+] ITIL Incident Created Successfully! Ticket ID: {response.text}")
+        else:
+            print(f"[!] Failed to create ticket. Status: {response.status_code}, Response: {response.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Connection error to osTicket API: {e}")
+
+if __name__ == "__main__":
+    print("=== Bluestone Lab 1 Python Automation Tool ===")
+    
+    # 1. Generate Netplan configuration file for SRV01
+    generate_netplan_config()
+    
+    # 2. Example: Uncomment below when your osTicket REST API key and URL are active
+    # OSTICKET_URL = "http://helpdesk.bluestone.local/api/tickets.json"
+    # API_KEY = "YOUR_OSTICKET_API_KEY_HERE"
+    # create_osticket_incident(
+    #     api_url=OSTICKET_URL,
+    #     api_key=API_KEY,
+    #     subject="Incident - No Network (Break/Fix Scenario #1)",
+    #     message="CLIENT01 is receiving an APIPA address (169.254.x.x) due to disabled DHCP scope on pfSense."
+    # )
