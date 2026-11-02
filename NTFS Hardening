@@ -1,0 +1,64 @@
+# ==============================================================================
+# Bluestone Local - Shared Drives & Least-Privilege NTFS Permissions Setup
+# ==============================================================================
+
+$ShareRoot = "C:\Shares"
+$Folders = @("Company", "Sales", "Finance")
+
+# 1. Create Base Share Directory
+if (-not (Test-Path $ShareRoot)) {
+    New-Item -Path $ShareRoot -ItemType Directory | Out-Null
+    Write-Host "[+] Created root share directory: $ShareRoot" -ForegroundColor Green
+}
+
+foreach ($Folder in $Folders) {
+    $FolderPath = Join-Path $ShareRoot $Folder
+    
+    # Create Folder if it doesn't exist
+    if (-not (Test-Path $FolderPath)) {
+        New-Item -Path $FolderPath -ItemType Directory | Out-Null
+        Write-Host "[+] Created folder: $FolderPath" -ForegroundColor Cyan
+    }
+
+    # Create SMB Share (Grant Everyone Read access at the share-level; secure via NTFS)
+    $ShareName = $Folder
+    if (-not (Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue)) {
+        New-SmbShare -Name $ShareName -Path $FolderPath -FullAccess "Administrators" -ReadAccess "Authenticated Users" | Out-Null
+        Write-Host "[+] Created SMB Share: \\DC01\$ShareName" -ForegroundColor Yellow
+    }
+
+    # Configure NTFS Permissions (Inheritance disabled, stripping generic access)
+    $Acl = Get-Acl $FolderPath
+    $Acl.SetAccessRuleProtection($True, $False) # Disable inheritance, remove inherited rules
+
+    # Always grant Administrators and SYSTEM full control
+    $AdminRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators","FullControl","ContainerInherit,ObjectInherit","None","Allow")
+    $SystemRule = New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","ContainerInherit,ObjectInherit","None","Allow")
+    $Acl.SetAccessRule($AdminRule)
+    $Acl.SetAccessRule($SystemRule)
+
+    # Apply Specific Department Permissions based on Share type
+    if ($Folder -eq "Company") {
+        # All staff (Domain Users) get Modify/Read-Write access
+        $StaffRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Domain Users","Modify","ContainerInherit,ObjectInherit","None","Allow")
+        $Acl.AddAccessRule($StaffRule)
+        Write-Host "[*] Applied 'Domain Users (Modify)' to $Folder" -ForegroundColor DarkCyan
+    } 
+    elseif ($Folder -eq "Sales") {
+        # Sales department group gets Modify access
+        $SalesRule = New-Object System.Security.AccessControl.FileSystemAccessRule("GG-Sales","Modify","ContainerInherit,ObjectInherit","None","Allow")
+        $Acl.AddAccessRule($SalesRule)
+        Write-Host "[*] Applied 'GG-Sales (Modify)' to $Folder" -ForegroundColor DarkCyan
+    } 
+    elseif ($Folder -eq "Finance") {
+        # Finance department group gets Modify access
+        $FinanceRule = New-Object System.Security.AccessControl.FileSystemAccessRule("GG-Finance","Modify","ContainerInherit,ObjectInherit","None","Allow")
+        $Acl.AddAccessRule($FinanceRule)
+        Write-Host "[*] Applied 'GG-Finance (Modify)' to $Folder" -ForegroundColor DarkCyan
+    }
+
+    # Apply ACLs to folder
+    Set-Acl $FolderPath $Acl
+}
+
+Write-Host "`n[SUCCESS] All shares have been configured with least-privilege NTFS permissions!" -ForegroundColor Green
